@@ -1,0 +1,280 @@
+// ─── Design Tokens ────────────────────────────────────────────────────────────
+:host {
+  --bg: #0f1117;
+  --surface: #191d27;
+  --surface-2: #222638;
+  --border: rgba(255, 255, 255, 0.07);
+  --text-primary: #e8eaf0;
+  --text-secondary: #7b8099;
+  --text-muted: #454d66;
+  --accent: #6c7cff;
+  --radius: 16px;
+  --font-mono: 'JetBrains Mono', 'Fira Mono', 'Cascadia Code', monospace;
+  --font-display: 'Sora', 'DM Sans', 'Nunito', sans-serif;
+
+  display: block;
+  font-family: var(--font-display);
+  color: var(--text-primary);
+}
+
+// ─── Container ────────────────────────────────────────────────────────────────
+.chart-container {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 28px 20px;
+  max-width: 700px;
+  margin: 0 auto;
+  box-shadow:
+    0 0 0 1px rgba(108, 124, 255, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+// ─── Title ────────────────────────────────────────────────────────────────────
+.chart-title {
+  margin: 0 0 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+// ─── SVG Wrapper ──────────────────────────────────────────────────────────────
+.chart-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+// ─── Animation ────────────────────────────────────────────────────────────────
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-in {
+  animation: fadeSlideIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+// ─── Grid & Axes ──────────────────────────────────────────────────────────────
+.grid-line {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.axis-line {
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 1.5;
+}
+
+.axis-label {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+// ─── Line Chart ───────────────────────────────────────────────────────────────
+.line-path {
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke-width 0.2s ease;
+  fill: none;
+}
+
+.area-path {
+  transition: opacity 0.2s ease;
+}
+
+.data-point {
+  transition: r 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), stroke-width 0.18s ease;
+  cursor: pointer;
+}
+
+.point-ring {
+  transition: r 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.hit-area {
+  cursor: pointer;
+}
+
+// ─── Column Chart ─────────────────────────────────────────────────────────────
+@keyframes barGrow {
+  from { transform: scaleY(0); transform-origin: bottom; }
+  to   { transform: scaleY(1); transform-origin: bottom; }
+}
+
+.bar {
+  cursor: pointer;
+  transition: filter 0.18s ease, opacity 0.18s ease;
+  animation: barGrow 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  &:hover,
+  &.bar-hovered {
+    filter: brightness(1.25) drop-shadow(0 0 8px currentColor);
+    opacity: 1;
+  }
+}
+
+.bar-value-label {
+  fill: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  animation: fadeSlideIn 0.2s ease both;
+}
+
+// ─── Pie / Donut ──────────────────────────────────────────────────────────────
+@keyframes slicePop {
+  from { opacity: 0; transform: scale(0.9); transform-origin: center; }
+  to   { opacity: 1; transform: scale(1);   transform-origin: center; }
+}
+
+.pie-slice {
+  cursor: pointer;
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.18s ease;
+  animation: slicePop 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  &.slice-hovered {
+    filter: brightness(1.2) drop-shadow(0 0 10px rgba(255,255,255,0.2));
+  }
+}
+
+.pie-label {
+  fill: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  pointer-events: none;
+}
+
+.donut-center-label {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.donut-center-value {
+  fill: var(--text-primary);
+  font-size: 22px;
+  font-weight: 700;
+  font-family: var(--font-display);
+}
+
+// ─── Tooltip ──────────────────────────────────────────────────────────────────
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: rgba(22, 26, 38, 0.96);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 10;
+
+  &.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tooltip-name {
+  color: var(--text-secondary);
+}
+
+.tooltip-value {
+  color: var(--text-primary);
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+// ─── Legend ───────────────────────────────────────────────────────────────────
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: background 0.18s ease, border-color 0.18s ease;
+  cursor: default;
+
+  &.legend-active {
+    background: var(--surface-2);
+    border-color: var(--border);
+  }
+}
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.legend-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+}
+
+.legend-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+// ─── Responsive ───────────────────────────────────────────────────────────────
+@media (max-width: 480px) {
+  .chart-container {
+    padding: 18px 14px 14px;
+  }
+
+  .chart-title {
+    font-size: 0.82rem;
+  }
+
+  .legend {
+    gap: 4px 10px;
+  }
+}

@@ -1,0 +1,292 @@
+<div class="chart-container">
+  <!-- Title -->
+  <h2 class="chart-title">{{ chartOptions.title }}</h2>
+
+  <!-- Chart Wrapper (for responsive sizing) -->
+  <div class="chart-wrapper" #chartWrapper (mousemove)="onMouseMove($event)">
+
+    <!-- ── LINE CHART ────────────────────────────────────────────────── -->
+    <ng-container *ngIf="chartOptions.type === 'line'">
+      <svg
+        class="chart-svg animate-in"
+        [attr.viewBox]="'0 0 ' + svgWidth + ' ' + svgHeight"
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <defs>
+          <!-- Area gradient -->
+          <linearGradient
+            *ngFor="let pt of chartPoints; trackBy: trackByIndex; let i = index"
+            [id]="'lineGrad' + i"
+            x1="0" y1="0" x2="0" y2="1"
+          >
+            <stop offset="0%" [attr.stop-color]="pt.color" stop-opacity="0.28" />
+            <stop offset="100%" [attr.stop-color]="pt.color" stop-opacity="0" />
+          </linearGradient>
+
+          <!-- Glow filter -->
+          <filter id="glow">
+            <feGaussianBlur stdDeviation="2.5" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
+        <!-- Grid lines -->
+        <g class="grid-lines">
+          <line
+            *ngFor="let tick of yTicks; trackBy: trackByIndex"
+            [attr.x1]="PADDING.left"
+            [attr.x2]="PADDING.left + plotWidth"
+            [attr.y1]="tick.y"
+            [attr.y2]="tick.y"
+            class="grid-line"
+          />
+        </g>
+
+        <!-- Y-Axis labels -->
+        <g class="y-axis">
+          <text
+            *ngFor="let tick of yTicks; trackBy: trackByIndex"
+            [attr.x]="PADDING.left - 8"
+            [attr.y]="tick.y + 4"
+            class="axis-label"
+            text-anchor="end"
+          >{{ tick.label }}</text>
+        </g>
+
+        <!-- X-Axis labels -->
+        <g class="x-axis">
+          <text
+            *ngFor="let tick of xTicks; trackBy: trackByIndex"
+            [attr.x]="tick.x"
+            [attr.y]="PADDING.top + plotHeight + 22"
+            class="axis-label"
+            text-anchor="middle"
+          >{{ tick.label }}</text>
+        </g>
+
+        <!-- Area fill -->
+        <path [attr.d]="areaPath" class="area-path" fill="url(#lineGrad0)" />
+
+        <!-- Line -->
+        <path
+          [attr.d]="linePath"
+          class="line-path"
+          [attr.stroke]="chartPoints[0]?.color ?? 'transparent'"
+          fill="none"
+          filter="url(#glow)"
+        />
+
+        <!-- Data points -->
+        <g *ngFor="let pt of chartPoints; trackBy: trackByIndex; let i = index">
+          <!-- Hit area -->
+          <circle
+            [attr.cx]="pt.x"
+            [attr.cy]="pt.y"
+            r="18"
+            fill="transparent"
+            class="hit-area"
+            (mouseenter)="onPointEnter(i, $event)"
+            (mouseleave)="onPointLeave()"
+          />
+          <!-- Outer ring on hover -->
+          <circle
+            [attr.cx]="pt.x"
+            [attr.cy]="pt.y"
+            [attr.r]="hoveredIndex === i ? 12 : 0"
+            [attr.fill]="pt.color"
+            fill-opacity="0.15"
+            class="point-ring"
+          />
+          <!-- Main dot -->
+          <circle
+            [attr.cx]="pt.x"
+            [attr.cy]="pt.y"
+            [attr.r]="hoveredIndex === i ? 7 : 5"
+            [attr.fill]="pt.color"
+            [attr.stroke]="hoveredIndex === i ? '#fff' : 'transparent'"
+            stroke-width="2"
+            class="data-point"
+          />
+        </g>
+
+        <!-- Axes -->
+        <line
+          [attr.x1]="PADDING.left" [attr.y1]="PADDING.top"
+          [attr.x2]="PADDING.left" [attr.y2]="PADDING.top + plotHeight"
+          class="axis-line"
+        />
+        <line
+          [attr.x1]="PADDING.left" [attr.y1]="PADDING.top + plotHeight"
+          [attr.x2]="PADDING.left + plotWidth" [attr.y2]="PADDING.top + plotHeight"
+          class="axis-line"
+        />
+      </svg>
+    </ng-container>
+
+    <!-- ── COLUMN CHART ──────────────────────────────────────────────── -->
+    <ng-container *ngIf="chartOptions.type === 'column'">
+      <svg
+        class="chart-svg animate-in"
+        [attr.viewBox]="'0 0 ' + svgWidth + ' ' + svgHeight"
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <defs>
+          <linearGradient
+            *ngFor="let pt of chartPoints; trackBy: trackByIndex; let i = index"
+            [id]="'colGrad' + i"
+            x1="0" y1="0" x2="0" y2="1"
+          >
+            <stop offset="0%" [attr.stop-color]="pt.color" stop-opacity="1" />
+            <stop offset="100%" [attr.stop-color]="pt.color" stop-opacity="0.65" />
+          </linearGradient>
+        </defs>
+
+        <!-- Grid lines -->
+        <g class="grid-lines">
+          <line
+            *ngFor="let tick of yTicks; trackBy: trackByIndex"
+            [attr.x1]="PADDING.left"
+            [attr.x2]="PADDING.left + plotWidth"
+            [attr.y1]="tick.y"
+            [attr.y2]="tick.y"
+            class="grid-line"
+          />
+        </g>
+
+        <!-- Y-Axis labels -->
+        <g class="y-axis">
+          <text
+            *ngFor="let tick of yTicks; trackBy: trackByIndex"
+            [attr.x]="PADDING.left - 8"
+            [attr.y]="tick.y + 4"
+            class="axis-label"
+            text-anchor="end"
+          >{{ tick.label }}</text>
+        </g>
+
+        <!-- X-Axis labels -->
+        <g class="x-axis">
+          <text
+            *ngFor="let tick of xTicks; trackBy: trackByIndex"
+            [attr.x]="tick.x"
+            [attr.y]="PADDING.top + plotHeight + 22"
+            class="axis-label"
+            text-anchor="middle"
+          >{{ tick.label }}</text>
+        </g>
+
+        <!-- Bars -->
+        <g *ngFor="let pt of chartPoints; trackBy: trackByIndex; let i = index">
+          <rect
+            [attr.x]="pt.x - barWidth / 2"
+            [attr.y]="pt.y"
+            [attr.width]="barWidth"
+            [attr.height]="barHeight(pt)"
+            [attr.fill]="'url(#colGrad' + i + ')'"
+            [attr.rx]="4"
+            [class.bar-hovered]="hoveredIndex === i"
+            class="bar"
+            (mouseenter)="onPointEnter(i, $event)"
+            (mouseleave)="onPointLeave()"
+          />
+          <!-- Value label on hover -->
+          <text
+            *ngIf="hoveredIndex === i"
+            [attr.x]="pt.x"
+            [attr.y]="pt.y - 8"
+            class="bar-value-label"
+            text-anchor="middle"
+          >{{ formatValue(pt.value) }}</text>
+        </g>
+
+        <!-- Axes -->
+        <line
+          [attr.x1]="PADDING.left" [attr.y1]="PADDING.top"
+          [attr.x2]="PADDING.left" [attr.y2]="PADDING.top + plotHeight"
+          class="axis-line"
+        />
+        <line
+          [attr.x1]="PADDING.left" [attr.y1]="PADDING.top + plotHeight"
+          [attr.x2]="PADDING.left + plotWidth" [attr.y2]="PADDING.top + plotHeight"
+          class="axis-line"
+        />
+      </svg>
+    </ng-container>
+
+    <!-- ── PIE / DONUT CHART ─────────────────────────────────────────── -->
+    <ng-container *ngIf="chartOptions.type === 'pie'">
+      <svg
+        class="chart-svg animate-in"
+        [attr.viewBox]="'0 0 ' + svgWidth + ' ' + svgHeight"
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <defs>
+          <filter id="sliceShadow">
+            <feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.18" />
+          </filter>
+        </defs>
+
+        <!-- Slices -->
+        <g filter="url(#sliceShadow)">
+          <path
+            *ngFor="let sl of pieSlices; trackBy: trackByIndex; let i = index"
+            [attr.d]="sl.path"
+            [attr.fill]="sl.color"
+            [attr.transform]="sliceTransform(i)"
+            [class.slice-hovered]="hoveredSliceIndex === i"
+            class="pie-slice"
+            (mouseenter)="onSliceEnter(i, $event)"
+            (mouseleave)="onSliceLeave()"
+          />
+        </g>
+
+        <!-- Percentage labels on slices (show if > 8%) -->
+        <text
+          *ngFor="let sl of pieSlices; trackBy: trackByIndex"
+          [attr.x]="sl.labelX"
+          [attr.y]="sl.labelY"
+          [attr.transform]="sliceTransform(pieSlices.indexOf(sl))"
+          class="pie-label"
+          text-anchor="middle"
+          dominant-baseline="middle"
+        >
+          <tspan *ngIf="sl.percentage >= 8">{{ sl.percentage }}%</tspan>
+        </text>
+
+        <!-- Center total -->
+        <text [attr.x]="pieCenterX()" [attr.y]="pieCenterY() - 8" class="donut-center-label" text-anchor="middle">Total</text>
+        <text [attr.x]="pieCenterX()" [attr.y]="pieCenterY() + 14" class="donut-center-value" text-anchor="middle">
+          {{ formatValue(pieTotal()) }}
+        </text>
+      </svg>
+    </ng-container>
+
+    <!-- Tooltip -->
+    <div
+      class="tooltip"
+      [class.visible]="tooltipVisible"
+      [style.left.px]="tooltipX"
+      [style.top.px]="tooltipY"
+    >
+      <span class="tooltip-dot" [style.background]="tooltipColor"></span>
+      <span class="tooltip-name">{{ tooltipName }}</span>
+      <span class="tooltip-value">{{ tooltipValue }}</span>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div
+      *ngFor="let s of chartOptions.series; trackBy: trackByIndex; let i = index"
+      class="legend-item"
+      [class.legend-active]="hoveredIndex === i || hoveredSliceIndex === i"
+    >
+      <span class="legend-swatch" [style.background]="s.color"></span>
+      <span class="legend-text">{{ s.name }}</span>
+      <span class="legend-value">{{ formatValue(s.value) }}</span>
+    </div>
+  </div>
+</div>
