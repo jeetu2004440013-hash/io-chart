@@ -124,3 +124,4 @@ Standalone components with `ChangeDetectionStrategy.OnPush`, sub-millisecond rec
 ## 📝 License
 
 MIT
+# io-chart
