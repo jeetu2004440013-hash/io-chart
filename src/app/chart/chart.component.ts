@@ -8,34 +8,53 @@ import {
   ElementRef,
   ViewChild,
   AfterViewInit,
+  ChangeDetectorRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
-// ─── Interfaces ──────────────────────────────────────────────────────────────
+// ─── Public Interfaces ────────────────────────────────────────────────────────
 
 export interface SeriesItem {
   name: string;
   value: number;
-  color: string;
+  color?: string;
+  formattedValue?: string;
+  change?: string; // e.g. "+12.4%"
 }
 
 export interface ChartOptions {
   type: 'line' | 'column' | 'pie';
   title: string;
+  subtitle?: string;
   series: SeriesItem[];
+  unit?: string;           // e.g. '$', 'K', 'req/s'
+  unitPosition?: 'prefix' | 'suffix';
+  height?: number;
+  showGrid?: boolean;
+  showArea?: boolean;
+  showDots?: boolean;
+  curveType?: 'smooth' | 'straight';
+  targetValue?: number;
+  targetLabel?: string;
+  theme?: 'dark' | 'light' | 'midnight';
+  showControls?: boolean;
 }
 
-// Internal computed point for line/column charts
-interface ChartPoint {
+// ─── Internal Structures ──────────────────────────────────────────────────────
+
+export interface ChartPoint {
+  index: number;
   x: number;
   y: number;
   value: number;
   name: string;
   color: string;
+  change?: string;
+  pctOfTotal?: number;
 }
 
-// Internal computed slice for pie charts
-interface PieSlice {
+export interface PieSlice {
+  index: number;
   name: string;
   value: number;
   color: string;
@@ -47,7 +66,7 @@ interface PieSlice {
   labelY: number;
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Component Implementation ─────────────────────────────────────────────────
 
 @Component({
   selector: 'io-chart',
@@ -61,37 +80,53 @@ export class ChartComponent implements OnChanges, AfterViewInit {
   @Input() chartOptions!: ChartOptions;
   @ViewChild('chartWrapper') chartWrapper!: ElementRef<HTMLDivElement>;
 
-  // ── Computed layout dimensions ────────────────────────────────────────────
+  // Runtime type override (for quick switching via toolbar controls)
+  activeTypeOverride: 'line' | 'column' | 'pie' | null = null;
+
+  // Palette default fallback colors
+  private readonly defaultColors = [
+    '#6366f1', '#10b981', '#f59e0b', '#ec4899', '#3b82f6',
+    '#8b5cf6', '#06b6d4', '#f97316', '#14b8a6', '#e11d48'
+  ];
+
+  // ── Layout dimensions ───────────────────────────────────────────────────────
   svgWidth = 560;
-  svgHeight = 340;
-  readonly PADDING = { top: 30, right: 30, bottom: 50, left: 55 };
+  svgHeight = 320;
+  readonly PADDING = { top: 32, right: 28, bottom: 44, left: 56 };
 
   get plotWidth(): number {
-    return this.svgWidth - this.PADDING.left - this.PADDING.right;
-  }
-  get plotHeight(): number {
-    return this.svgHeight - this.PADDING.top - this.PADDING.bottom;
+    return Math.max(10, this.svgWidth - this.PADDING.left - this.PADDING.right);
   }
 
-  // ── Derived chart data ────────────────────────────────────────────────────
+  get plotHeight(): number {
+    return Math.max(10, this.svgHeight - this.PADDING.top - this.PADDING.bottom);
+  }
+
+  // ── Derived chart computed data ─────────────────────────────────────────────
   chartPoints: ChartPoint[] = [];
   pieSlices: PieSlice[] = [];
   yTicks: { value: number; y: number; label: string }[] = [];
   xTicks: { x: number; label: string }[] = [];
   linePath = '';
   areaPath = '';
+  barWidth = 36;
+  targetY: number | null = null;
 
-  // ── Hover state ───────────────────────────────────────────────────────────
+  // ── Hover / Interactive state ───────────────────────────────────────────────
   hoveredIndex: number | null = null;
+  hoveredSliceIndex: number | null = null;
+  crosshairX: number | null = null;
   tooltipX = 0;
   tooltipY = 0;
   tooltipVisible = false;
-  tooltipName = '';
+  tooltipTitle = '';
   tooltipValue = '';
   tooltipColor = '';
-  hoveredSliceIndex: number | null = null;
+  tooltipSubtext = '';
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  constructor(private cdr: ChangeDetectorRef) {}
+
+  // ── Lifecycle Hooks ─────────────────────────────────────────────────────────
 
   ngAfterViewInit(): void {
     this.measureAndCompute();
@@ -108,23 +143,73 @@ export class ChartComponent implements OnChanges, AfterViewInit {
     }
   }
 
+  // ── Computed Accessors ──────────────────────────────────────────────────────
+
+  get currentType(): 'line' | 'column' | 'pie' {
+    return this.activeTypeOverride || this.chartOptions?.type || 'line';
+  }
+
+  get showControls(): boolean {
+    return this.chartOptions?.showControls ?? true;
+  }
+
+  get showGrid(): boolean {
+    return this.chartOptions?.showGrid ?? true;
+  }
+
+  get showArea(): boolean {
+    return this.chartOptions?.showArea ?? true;
+  }
+
+  get showDots(): boolean {
+    return this.chartOptions?.showDots ?? true;
+  }
+
+  get primaryColor(): string {
+    return this.chartPoints[0]?.color || this.defaultColors[0];
+  }
+
+  get totalValue(): number {
+    return (this.chartOptions?.series || []).reduce((acc, curr) => acc + (curr.value || 0), 0);
+  }
+
+  get averageValue(): number {
+    const s = this.chartOptions?.series || [];
+    return s.length > 0 ? this.totalValue / s.length : 0;
+  }
+
+  get peakPoint(): ChartPoint | null {
+    if (!this.chartPoints.length) return null;
+    return this.chartPoints.reduce((max, p) => (p.value > max.value ? p : max), this.chartPoints[0]);
+  }
+
+  get activeSlice(): PieSlice | null {
+    if (this.hoveredSliceIndex === null) return null;
+    return this.pieSlices[this.hoveredSliceIndex] ?? null;
+  }
+
+  // ── Sizing and Computation ──────────────────────────────────────────────────
+
   private measureAndCompute(): void {
     if (this.chartWrapper?.nativeElement) {
       const w = this.chartWrapper.nativeElement.clientWidth;
       if (w > 0) {
         this.svgWidth = w;
-        this.svgHeight = Math.max(260, Math.min(420, w * 0.6));
+        if (this.chartOptions?.height) {
+          this.svgHeight = this.chartOptions.height;
+        } else {
+          this.svgHeight = Math.max(260, Math.min(380, Math.round(w * 0.52)));
+        }
       }
     }
     this.compute();
+    this.cdr.markForCheck();
   }
 
-  // ─── Core Computation ──────────────────────────────────────────────────────
-
-  private compute(): void {
+  compute(): void {
     if (!this.chartOptions?.series?.length) return;
 
-    switch (this.chartOptions.type) {
+    switch (this.currentType) {
       case 'line':
         this.computeLineChart();
         break;
@@ -137,109 +222,181 @@ export class ChartComponent implements OnChanges, AfterViewInit {
     }
   }
 
-  // ── Line Chart ─────────────────────────────────────────────────────────────
+  // ── Line Chart Engine ───────────────────────────────────────────────────────
 
   private computeLineChart(): void {
     const series = this.chartOptions.series;
     const values = series.map((s) => s.value);
-    const maxVal = Math.max(...values);
-    const minVal = Math.min(0, Math.min(...values));
+    let maxVal = Math.max(...values);
+    let minVal = Math.min(...values);
 
-    this.yTicks = this.buildYTicks(minVal, maxVal);
+    if (this.chartOptions.targetValue !== undefined) {
+      maxVal = Math.max(maxVal, this.chartOptions.targetValue);
+      minVal = Math.min(minVal, this.chartOptions.targetValue);
+    }
+
+    // Default lower baseline to 0 if minVal is close to 0 or positive
+    const zeroBaseline = minVal > 0 ? 0 : minVal;
+    this.yTicks = this.buildYTicks(zeroBaseline, maxVal);
+
     const yMax = this.yTicks[this.yTicks.length - 1]?.value ?? maxVal;
-    const yMin = this.yTicks[0]?.value ?? minVal;
+    const yMin = this.yTicks[0]?.value ?? zeroBaseline;
+    const range = yMax - yMin || 1;
 
     const n = series.length;
+    const total = this.totalValue;
+
     this.chartPoints = series.map((s, i) => {
       const x =
         this.PADDING.left +
-        (n === 1 ? this.plotWidth / 2 : (i / (n - 1)) * this.plotWidth);
+        (n <= 1 ? this.plotWidth / 2 : (i / (n - 1)) * this.plotWidth);
       const y =
         this.PADDING.top +
         this.plotHeight -
-        ((s.value - yMin) / (yMax - yMin || 1)) * this.plotHeight;
-      return { x, y, value: s.value, name: s.name, color: s.color };
+        ((s.value - yMin) / range) * this.plotHeight;
+      const color = s.color || this.defaultColors[i % this.defaultColors.length];
+
+      // Delta percentage calculation compared to previous point
+      let change: string | undefined = s.change;
+      if (!change && i > 0) {
+        const prev = series[i - 1].value;
+        if (prev !== 0) {
+          const delta = ((s.value - prev) / Math.abs(prev)) * 100;
+          change = `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`;
+        }
+      }
+
+      const pctOfTotal = total > 0 ? (s.value / total) * 100 : 0;
+
+      return {
+        index: i,
+        x,
+        y,
+        value: s.value,
+        name: s.name,
+        color,
+        change,
+        pctOfTotal,
+      };
     });
 
-    this.xTicks = series.map((s, i) => ({
-      x:
-        this.PADDING.left +
-        (n === 1 ? this.plotWidth / 2 : (i / (n - 1)) * this.plotWidth),
-      label: s.name,
-    }));
+    this.xTicks = this.chartPoints.map((p) => ({ x: p.x, label: p.name }));
 
-    // Smooth cubic bezier line
-    this.linePath = this.buildSmoothPath(this.chartPoints.map((p) => [p.x, p.y]));
+    // Target benchmark line Y
+    if (this.chartOptions.targetValue !== undefined) {
+      this.targetY =
+        this.PADDING.top +
+        this.plotHeight -
+        ((this.chartOptions.targetValue - yMin) / range) * this.plotHeight;
+    } else {
+      this.targetY = null;
+    }
 
-    // Area below line
-    const firstPt = this.chartPoints[0];
-    const lastPt = this.chartPoints[this.chartPoints.length - 1];
-    const baseline = this.PADDING.top + this.plotHeight;
-    this.areaPath =
-      this.linePath +
-      ` L${lastPt.x},${baseline} L${firstPt.x},${baseline} Z`;
+    // Path calculation
+    const pts: [number, number][] = this.chartPoints.map((p) => [p.x, p.y]);
+    if (this.chartOptions.curveType === 'straight') {
+      this.linePath = this.buildStraightPath(pts);
+    } else {
+      this.linePath = this.buildSmoothPath(pts);
+    }
+
+    // Area fill path
+    if (this.chartPoints.length > 0) {
+      const firstPt = this.chartPoints[0];
+      const lastPt = this.chartPoints[this.chartPoints.length - 1];
+      const baseline = this.PADDING.top + this.plotHeight;
+      this.areaPath = `${this.linePath} L${lastPt.x},${baseline} L${firstPt.x},${baseline} Z`;
+    }
   }
 
-  // ── Column Chart ───────────────────────────────────────────────────────────
+  // ── Column Chart Engine ─────────────────────────────────────────────────────
 
   private computeColumnChart(): void {
     const series = this.chartOptions.series;
     const values = series.map((s) => s.value);
-    const maxVal = Math.max(...values);
+    let maxVal = Math.max(...values, 0);
+
+    if (this.chartOptions.targetValue !== undefined) {
+      maxVal = Math.max(maxVal, this.chartOptions.targetValue);
+    }
 
     this.yTicks = this.buildYTicks(0, maxVal);
     const yMax = this.yTicks[this.yTicks.length - 1]?.value ?? maxVal;
+    const range = yMax || 1;
 
     const n = series.length;
     const barZone = this.plotWidth / n;
-    const barWidth = Math.min(barZone * 0.55, 60);
+    this.barWidth = Math.max(14, Math.min(barZone * 0.56, 52));
+    const total = this.totalValue;
 
     this.chartPoints = series.map((s, i) => {
       const cx = this.PADDING.left + barZone * i + barZone / 2;
-      const barH = (s.value / (yMax || 1)) * this.plotHeight;
+      const barH = (s.value / range) * this.plotHeight;
       const y = this.PADDING.top + this.plotHeight - barH;
-      return { x: cx, y, value: s.value, name: s.name, color: s.color };
+      const color = s.color || this.defaultColors[i % this.defaultColors.length];
+      const pctOfTotal = total > 0 ? (s.value / total) * 100 : 0;
+
+      return {
+        index: i,
+        x: cx,
+        y,
+        value: s.value,
+        name: s.name,
+        color,
+        pctOfTotal,
+      };
     });
 
     this.xTicks = this.chartPoints.map((p) => ({ x: p.x, label: p.name }));
-    (this as any)._barWidth = barWidth;
+
+    if (this.chartOptions.targetValue !== undefined) {
+      this.targetY =
+        this.PADDING.top +
+        this.plotHeight -
+        (this.chartOptions.targetValue / range) * this.plotHeight;
+    } else {
+      this.targetY = null;
+    }
   }
 
-  get barWidth(): number {
-    return (this as any)._barWidth ?? 40;
+  getBarHeight(p: ChartPoint): number {
+    return Math.max(2, this.PADDING.top + this.plotHeight - p.y);
   }
 
-  get barHeight(): ((p: ChartPoint) => number) {
-    return (p: ChartPoint) =>
-      this.PADDING.top + this.plotHeight - p.y;
+  getBarTrackHeight(): number {
+    return this.plotHeight;
   }
 
-  // ── Pie Chart ──────────────────────────────────────────────────────────────
+  // ── Donut / Pie Chart Engine ────────────────────────────────────────────────
 
   private computePieChart(): void {
     const series = this.chartOptions.series;
-    const total = series.reduce((s, d) => s + d.value, 0);
+    const total = this.totalValue || 1;
 
-    const cx = this.svgWidth / 2;
-    const cy = this.svgHeight / 2;
-    const r = Math.min(this.svgWidth, this.svgHeight) * 0.33;
-    const innerR = r * 0.42; // donut hole
+    const cx = this.pieCenterX();
+    const cy = this.pieCenterY();
+    const r = this.pieRadius();
+    const innerR = r * 0.58; // Modern donut hole proportion
 
     let angle = -Math.PI / 2;
-    this.pieSlices = series.map((s) => {
-      const pct = s.value / (total || 1);
+
+    this.pieSlices = series.map((s, i) => {
+      const pct = (s.value || 0) / total;
+      const sweepAngle = pct * 2 * Math.PI;
       const start = angle;
-      const end = angle + pct * 2 * Math.PI;
+      const end = angle + sweepAngle;
       const midAngle = (start + end) / 2;
-      const labelR = r * 0.72;
+      const labelR = r * 0.78;
+      const color = s.color || this.defaultColors[i % this.defaultColors.length];
 
       const path = this.buildDonutSlicePath(cx, cy, innerR, r, start, end);
-
       angle = end;
+
       return {
+        index: i,
         name: s.name,
         value: s.value,
-        color: s.color,
+        color,
         percentage: Math.round(pct * 100),
         startAngle: start,
         endAngle: end,
@@ -250,7 +407,7 @@ export class ChartComponent implements OnChanges, AfterViewInit {
     });
   }
 
-  // ─── SVG Path Helpers ──────────────────────────────────────────────────────
+  // ── SVG Path Computation Helpers ────────────────────────────────────────────
 
   private buildSmoothPath(pts: [number, number][]): string {
     if (pts.length === 0) return '';
@@ -266,6 +423,11 @@ export class ChartComponent implements OnChanges, AfterViewInit {
     return d;
   }
 
+  private buildStraightPath(pts: [number, number][]): string {
+    if (pts.length === 0) return '';
+    return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ');
+  }
+
   private buildDonutSlicePath(
     cx: number,
     cy: number,
@@ -274,6 +436,11 @@ export class ChartComponent implements OnChanges, AfterViewInit {
     startAngle: number,
     endAngle: number
   ): string {
+    // If slice spans essentially 360 degrees (single item)
+    if (endAngle - startAngle >= 2 * Math.PI - 0.0001) {
+      endAngle = startAngle + 2 * Math.PI - 0.0001;
+    }
+
     const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
 
     const x1 = cx + Math.cos(startAngle) * outerR;
@@ -294,31 +461,33 @@ export class ChartComponent implements OnChanges, AfterViewInit {
     ].join(' ');
   }
 
-  // ─── Y-Axis Ticks ──────────────────────────────────────────────────────────
+  // ── Y-Axis Algorithm ────────────────────────────────────────────────────────
 
   private buildYTicks(
     minVal: number,
     maxVal: number
   ): { value: number; y: number; label: string }[] {
-    const range = maxVal - minVal || 1;
-    const step = this.niceStep(range / 5);
+    const range = Math.max(1, maxVal - minVal);
+    const step = this.niceStep(range / 4);
     const start = Math.floor(minVal / step) * step;
-    const ticks: { value: number; y: number; label: string }[] = [];
     const niceMax = Math.ceil(maxVal / step) * step;
+    const ticks: { value: number; y: number; label: string }[] = [];
 
-    for (let v = start; v <= niceMax + step * 0.01; v = Math.round((v + step) * 1e9) / 1e9) {
+    const totalSteps = Math.max(1, Math.round((niceMax - start) / step));
+    for (let i = 0; i <= totalSteps; i++) {
+      const v = start + i * step;
       const y =
         this.PADDING.top +
         this.plotHeight -
         ((v - start) / (niceMax - start || 1)) * this.plotHeight;
       ticks.push({ value: v, y, label: this.formatValue(v) });
-      if (ticks.length > 8) break;
+      if (ticks.length > 7) break;
     }
     return ticks;
   }
 
   private niceStep(rough: number): number {
-    const pow = Math.pow(10, Math.floor(Math.log10(rough)));
+    const pow = Math.pow(10, Math.floor(Math.log10(Math.max(1e-6, rough))));
     const f = rough / pow;
     if (f <= 1) return pow;
     if (f <= 2) return 2 * pow;
@@ -327,82 +496,172 @@ export class ChartComponent implements OnChanges, AfterViewInit {
   }
 
   formatValue(v: number): string {
-    if (Math.abs(v) >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'M';
-    if (Math.abs(v) >= 1_000) return (v / 1_000).toFixed(1) + 'K';
-    return v % 1 === 0 ? String(v) : v.toFixed(1);
+    const unit = this.chartOptions?.unit || '';
+    const pos = this.chartOptions?.unitPosition || 'prefix';
+    let formatted = '';
+
+    if (Math.abs(v) >= 1_000_000) {
+      formatted = (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    } else if (Math.abs(v) >= 1_000) {
+      formatted = (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+    } else {
+      formatted = v % 1 === 0 ? String(v) : v.toFixed(1);
+    }
+
+    if (unit) {
+      return pos === 'prefix' ? `${unit}${formatted}` : `${formatted} ${unit}`;
+    }
+    return formatted;
   }
 
-  // ─── Tooltip ───────────────────────────────────────────────────────────────
+  // ── Hover & Mouse Events ────────────────────────────────────────────────────
+
+  onSvgMouseMove(event: MouseEvent): void {
+    if (this.currentType === 'pie') return;
+
+    const rect = this.chartWrapper?.nativeElement?.getBoundingClientRect();
+    if (!rect) return;
+
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+
+    // Find closest point by horizontal X distance
+    if (this.chartPoints.length > 0) {
+      let closestIdx = 0;
+      let minDiff = Infinity;
+
+      for (let i = 0; i < this.chartPoints.length; i++) {
+        const diff = Math.abs(this.chartPoints[i].x - mouseX);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIdx = i;
+        }
+      }
+
+      this.hoveredIndex = closestIdx;
+      const pt = this.chartPoints[closestIdx];
+      this.crosshairX = pt.x;
+
+      this.tooltipTitle = pt.name;
+      this.tooltipValue = this.formatValue(pt.value);
+      this.tooltipColor = pt.color;
+      this.tooltipSubtext = pt.change
+        ? `${pt.change} vs prior`
+        : pt.pctOfTotal ? `${pt.pctOfTotal.toFixed(1)}% of total` : '';
+
+      // Position tooltip safely within container bounds
+      this.tooltipX = Math.min(Math.max(10, pt.x - 70), this.svgWidth - 150);
+      this.tooltipY = Math.max(10, pt.y - 68);
+      this.tooltipVisible = true;
+      this.cdr.markForCheck();
+    }
+  }
+
+  onSvgMouseLeave(): void {
+    if (this.currentType !== 'pie') {
+      this.hoveredIndex = null;
+      this.crosshairX = null;
+      this.tooltipVisible = false;
+      this.cdr.markForCheck();
+    }
+  }
 
   onPointEnter(index: number, event: MouseEvent): void {
     this.hoveredIndex = index;
     const pt = this.chartPoints[index];
-    this.tooltipName = pt.name;
+    this.crosshairX = pt.x;
+    this.tooltipTitle = pt.name;
     this.tooltipValue = this.formatValue(pt.value);
     this.tooltipColor = pt.color;
+    this.tooltipSubtext = pt.change ? `${pt.change} vs prior` : '';
     this.updateTooltipPos(event);
     this.tooltipVisible = true;
-  }
-
-  onPointLeave(): void {
-    this.hoveredIndex = null;
-    this.tooltipVisible = false;
+    this.cdr.markForCheck();
   }
 
   onSliceEnter(index: number, event: MouseEvent): void {
     this.hoveredSliceIndex = index;
     const sl = this.pieSlices[index];
-    this.tooltipName = sl.name;
+    this.tooltipTitle = sl.name;
     this.tooltipValue = `${this.formatValue(sl.value)} (${sl.percentage}%)`;
     this.tooltipColor = sl.color;
+    this.tooltipSubtext = `Share: ${sl.percentage}%`;
     this.updateTooltipPos(event);
     this.tooltipVisible = true;
+    this.cdr.markForCheck();
   }
 
   onSliceLeave(): void {
     this.hoveredSliceIndex = null;
     this.tooltipVisible = false;
-  }
-
-  onMouseMove(event: MouseEvent): void {
-    if (this.tooltipVisible) this.updateTooltipPos(event);
+    this.cdr.markForCheck();
   }
 
   private updateTooltipPos(event: MouseEvent): void {
-    const rect = (event.currentTarget as SVGElement)
-      .closest('.chart-wrapper')
-      ?.getBoundingClientRect();
+    const rect = this.chartWrapper?.nativeElement?.getBoundingClientRect();
     if (rect) {
-      this.tooltipX = event.clientX - rect.left + 12;
-      this.tooltipY = event.clientY - rect.top - 36;
+      const x = event.clientX - rect.left + 14;
+      const y = event.clientY - rect.top - 48;
+      this.tooltipX = Math.min(Math.max(10, x), this.svgWidth - 150);
+      this.tooltipY = Math.max(10, y);
     }
   }
 
-  // ─── Helpers for template ──────────────────────────────────────────────────
+  // ── Toolbar Actions ─────────────────────────────────────────────────────────
 
-  trackByIndex(_: number, __: unknown): number {
-    return _;
+  setChartType(type: 'line' | 'column' | 'pie'): void {
+    this.activeTypeOverride = type;
+    this.compute();
+    this.cdr.markForCheck();
+  }
+
+  exportSvg(): void {
+    const svgEl = this.chartWrapper?.nativeElement?.querySelector('svg');
+    if (!svgEl) return;
+
+    const serializer = new XMLSerializer();
+    let source = serializer.serializeToString(svgEl);
+
+    // Ensure svg namespace is defined
+    if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) {
+      source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+
+    const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    const downloadLink = document.createElement('a');
+    downloadLink.href = svgUrl;
+    downloadLink.download = `${(this.chartOptions.title || 'chart').toLowerCase().replace(/\s+/g, '-')}.svg`;
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
+    URL.revokeObjectURL(svgUrl);
+  }
+
+  // ── Template Computation Helpers ────────────────────────────────────────────
+
+  trackByIndex(index: number): number {
+    return index;
   }
 
   pieCenterX(): number {
     return this.svgWidth / 2;
   }
+
   pieCenterY(): number {
     return this.svgHeight / 2;
   }
+
   pieRadius(): number {
-    return Math.min(this.svgWidth, this.svgHeight) * 0.33;
-  }
-  pieTotal(): number {
-    return this.chartOptions?.series?.reduce((s, d) => s + d.value, 0) ?? 0;
+    return Math.min(this.svgWidth, this.svgHeight) * 0.35;
   }
 
   sliceTransform(index: number): string {
     if (this.hoveredSliceIndex !== index) return '';
     const sl = this.pieSlices[index];
     const mid = (sl.startAngle + sl.endAngle) / 2;
-    const dx = Math.cos(mid) * 8;
-    const dy = Math.sin(mid) * 8;
-    return `translate(${dx}, ${dy})`;
+    const dx = Math.cos(mid) * 10;
+    const dy = Math.sin(mid) * 10;
+    return `translate(${dx.toFixed(2)}, ${dy.toFixed(2)})`;
   }
 }
